@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keel boat 실선 정밀 3D 세일링 물리 연구소 (기체역학 연기 풍동 & 난지 수역)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.7); }
+    .optimal-badge-anim { animation: pulseTrim 1.2s infinite alternate; }
+    @keyframes pulseTrim {
+      0% { transform: scale(1); filter: drop-shadow(0 0 8px #10b981); }
+      100% { transform: scale(1.04); filter: drop-shadow(0 0 18px #34d399); }
+    }
+  </style>
+
+  <!-- Local Three.js Importmap -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/node_modules/three/build/three.module.js",
+      "three/addons/": "/node_modules/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans select-none overflow-x-hidden">
+
+  <!-- TOP HEADER & REAL-TIME GEO TELEMETRY -->
+  <header class="border-b border-slate-800 bg-slate-900/95 backdrop-blur px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/25">
+        <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
+          Keel boat 실선 3D 공기역학 시뮬레이터 <span class="text-slate-400 font-normal">| 틸러 조향 & 연기 풍동 유체역학</span>
+          <span class="text-[11px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">CFD Flow & Keel boat One-Design</span>
+        </h1>
+        <p class="text-xs text-slate-400 flex items-center gap-3">
+          <span>수역: <strong>한강 난지 수역 (월드컵대교 ~ 가양대교)</strong></span>
+          <span>기체역학: <strong class="text-cyan-300">베르누이 부압 가속 & 정체점 분기 연기</strong></span>
+          <span>조향: <strong class="text-emerald-400">레이싱 틸러 & 하이킹스틱</strong></span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Live Sailing Status Badges -->
+    <div class="flex items-center gap-2.5 text-xs font-mono">
+      <div id="optimalTrimBanner" class="hidden px-3.5 py-1.5 rounded-lg border border-emerald-500 bg-emerald-950/80 text-emerald-300 font-bold flex items-center gap-2 optimal-badge-anim">
+        <span class="text-base">🎯</span>
+        <span id="optimalTrimText">최적 트림 도달 (OPTIMAL TRIM!)</span>
+      </div>
+      <div class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-slate-300 flex items-center gap-1.5">
+        <span>선속(SOG):</span>
+        <span id="hudBoatSpeed" class="text-emerald-400 font-bold text-sm">6.8</span>
+        <span class="text-slate-400">kts</span>
+      </div>
+      <div class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-slate-300 flex items-center gap-1.5">
+        <span>힐(Heel):</span>
+        <span id="hudHeelAngle" class="text-amber-400 font-bold text-sm">14.5°</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN SIMULATION WORKSPACE -->
+  <main class="grid grid-cols-1 xl:grid-cols-12 gap-4 p-4 max-w-[2100px] mx-auto">
+    
+    <!-- LEFT: 3D HIGH-END GRAPHICS VIEWPORT (8 Cols) -->
+    <section class="xl:col-span-8 flex flex-col gap-3">
+      
+      <!-- 3D Three.js WebGL Container -->
+      <div class="relative w-full aspect-[16/9] bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl group">
+        <div id="webglContainer" class="w-full h-full block cursor-grab active:cursor-grabbing"></div>
+
+        <!-- Floating Trim Notification Banner in Viewport -->
+        <div id="viewportTrimAlert" class="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none transition-all duration-300 opacity-0 -translate-y-2">
+          <div class="bg-slate-900/90 backdrop-blur-md border border-emerald-500/80 rounded-xl px-5 py-2.5 shadow-2xl flex items-center gap-3">
+            <span class="w-3 h-3 rounded-full bg-emerald-400 animate-ping"></span>
+            <div>
+              <div class="text-xs font-bold text-emerald-300" id="trimAlertTitle">★ 메인세일 & 텔테일 최적 트림 달성!</div>
+              <div class="text-[11px] text-slate-300" id="trimAlertDesc">양력 극대화 · 풍하측 흡입부압 최고치 형성 · 전진 가속 중</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Overlaid River & Telltale Telemetry HUD -->
+        <div class="absolute top-4 left-4 pointer-events-none flex flex-col gap-2">
+          <!-- Fluid Aerodynamics Explanatory HUD -->
+          <div class="bg-slate-900/90 backdrop-blur-md border border-slate-700/60 rounded-xl p-3 shadow-lg text-xs space-y-2 w-72 font-mono">
+            <div class="text-[11px] font-bold tracking-wider text-slate-400 border-b border-slate-700 pb-1 flex justify-between">
+              <span>AERODYNAMICS & SMOKE CFD</span>
+              <span class="text-cyan-400">물리 원리</span>
+            </div>
+            
+            <!-- Pressure Difference Real-Time Monitor -->
+            <div class="space-y-1.5 text-[11px]">
+              <div class="flex justify-between items-center">
+                <span class="text-amber-400">풍상측 (오목면):</span>
+                <span class="text-white font-bold">감속/정압 (+ΔP 밀어냄)</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-cyan-400">풍하측 (볼록면):</span>
+                <span class="text-white font-bold">가속/부압 (-ΔP 흡입양력)</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-emerald-400">연기 거동:</span>
+                <span class="text-white font-bold">표면 관통 불가 (경계면 추종)</span>
+              </div>
+            </div>
+
+            <!-- Telltale Status -->
+            <div class="border-t border-slate-800 pt-1.5 space-y-1 text-[11px]">
+              <div class="flex justify-between">
+                <span class="text-rose-400">풍상측 텔테일 (Red):</span>
+                <span id="hudWindwardTelltale" class="font-bold text-white">0° (수평)</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-emerald-400">풍하측 텔테일 (Green):</span>
+                <span id="hudLeewardTelltale" class="font-bold text-white">0° (수평)</span>
+              </div>
+              <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-1">
+                <div id="telltaleQualityBar" class="h-full bg-emerald-500 transition-all duration-150" style="width: 95%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Camera Angle Presets -->
+        <div class="absolute top-4 right-4 flex items-center gap-1.5 bg-slate-900/85 backdrop-blur rounded-xl border border-slate-700/60 p-1.5 shadow-lg">
+          <button id="camCockpit" class="px-2.5 py-1 text-xs rounded-lg bg-cyan-950 text-cyan-300 border border-cyan-800 font-semibold transition">스키퍼 틸러 콕핏 (1인칭)</button>
+          <button id="camTelltale" class="px-2.5 py-1 text-xs rounded-lg hover:bg-slate-800 text-slate-300 transition">텔테일·세일 트림뷰</button>
+          <button id="camOrbit" class="px-2.5 py-1 text-xs rounded-lg hover:bg-slate-800 text-slate-300 transition">3D 자유궤도</button>
+          <button id="camMast" class="px-2.5 py-1 text-xs rounded-lg hover:bg-slate-800 text-slate-300 transition">마스트헤드</button>
+          <button id="camFleet" class="px-2.5 py-1 text-xs rounded-lg hover:bg-slate-800 text-slate-300 transition">Keel boat 레이싱 플릿</button>
+        </div>
+
+        <!-- River Landmark Compass Overlay -->
+        <div class="absolute bottom-4 right-4 bg-slate-900/85 backdrop-blur border border-slate-700/60 rounded-xl p-3 shadow-lg flex items-center gap-3">
+          <div class="relative w-14 h-14 rounded-full border border-slate-700 bg-slate-950 flex items-center justify-center">
+            <div class="absolute text-[9px] font-bold text-slate-400 top-0.5">N</div>
+            <div id="compassArrow" class="w-1 h-10 bg-gradient-to-t from-transparent via-cyan-500 to-cyan-300 rounded-full transition-transform duration-100" style="transform: rotate(0deg);"></div>
+            <div class="w-2 h-2 rounded-full bg-white z-10"></div>
+          </div>
+          <div class="text-xs font-mono space-y-0.5">
+            <div class="text-[10px] text-slate-400">수역 지형 랜드마크</div>
+            <div class="text-cyan-300 font-bold text-xs">동: 월드컵대교 사장교</div>
+            <div class="text-slate-400 text-[10px]">서: 가양대교 | 북: 난지·하늘공원</div>
+          </div>
+        </div>
+
+        <!-- Mouse Controls Guide -->
+        <div class="absolute bottom-4 left-4 text-[11px] text-slate-400 pointer-events-none bg-slate-950/70 backdrop-blur px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
+          <span>마우스 좌클릭: 360° 회전</span> | <span>우클릭: 이동</span> | <span>휠: 줌 인/아웃</span>
+        </div>
+      </div>
+
+      <!-- Quick Point of Sail Buttons -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span class="text-slate-400 font-semibold text-[11px] uppercase tracking-wider">세일링 포인트 프리셋:</span>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button onclick="applyPreset(45, 12, 14)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+            Close-Hauled (45° 쿠스)
+          </button>
+          <button onclick="applyPreset(90, 32, 34)" class="px-3 py-1.5 rounded-lg bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 font-medium transition">
+            Beam Reach (90° 어빔)
+          </button>
+          <button onclick="applyPreset(135, 60, 62)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+            Broad Reach (135° 러닝)
+          </button>
+          <button onclick="applyPreset(170, 80, 75)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+            Running (170° 순풍/제네이커)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: FULL SAILING CONTROL CONSOLE (4 Cols) -->
+    <section class="xl:col-span-4 flex flex-col gap-3">
+      
+      <!-- 1. HELM & RUDDER (TILLER ONLY - NO WHEEL) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+            Keel boat 레이싱 틸러 조향 (Tiller & Rudder)
+          </h2>
+          <span class="text-[10px] font-mono text-cyan-400" id="valHeading">침로: 90° (정동쪽)</span>
+        </div>
+
+        <div class="space-y-1.5 text-xs">
+          <div class="flex justify-between font-mono">
+            <label for="sliderHeading" class="text-slate-300">틸러 및 러더 조향각 (Tiller Steering):</label>
+            <span id="valRudder" class="text-cyan-400 font-bold">90°</span>
+          </div>
+          <input id="sliderHeading" type="range" min="20" max="175" value="90" step="1" 
+                 class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+          <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+            <span>풍상 20° (노고존)</span>
+            <span>횡풍 90° (어빔)</span>
+            <span>풍하 175° (순풍)</span>
+          </div>
+          <p class="text-[10px] text-slate-400">
+            Keel boat 원디자인 표준 규격: 휠이 없는 직결식 레이싱 틸러와 하이킹스틱을 통해 정밀 타각 피드백을 전달합니다.
+          </p>
+        </div>
+      </div>
+
+      <!-- 2. MAINSAIL & RIGGING (BOOM VANG / OUTHAUL) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            메인세일 & 캠버 제어 (Mainsail & Camber)
+          </h2>
+          <span id="mainsailTrimBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">적정</span>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <!-- Mainsheet Angle -->
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <label for="sliderMainsheet" class="text-slate-300">메인세일 시트 (Mainsheet Angle):</label>
+              <span id="valMainsheet" class="text-emerald-400 font-bold">25°</span>
+            </div>
+            <input id="sliderMainsheet" type="range" min="5" max="85" value="25" step="1" 
+                   class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+          </div>
+
+          <!-- Boom Vang -->
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <label for="sliderBoomVang" class="text-slate-300">붐뱅 텐션 (Boom Vang - Leech 비틀림 억제):</label>
+              <span id="valBoomVang" class="text-cyan-400 font-bold">50%</span>
+            </div>
+            <input id="sliderBoomVang" type="range" min="0" max="100" value="50" step="5" 
+                   class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+            <div class="text-[10px] text-slate-500 font-mono">붐대를 하향 인장하여 돛 상단이 뒤틀려(Twist) 양력을 잃는 것을 방지</div>
+          </div>
+
+          <!-- Outhaul -->
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <label for="sliderOuthaul" class="text-slate-300">아웃홀 텐션 (Outhaul - 돛 밑단 오목 포켓 제어):</label>
+              <span id="valOuthaul" class="text-amber-400 font-bold">60%</span>
+            </div>
+            <input id="sliderOuthaul" type="range" min="0" max="100" value="60" step="5" 
+                   class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+            <div class="text-[10px] text-slate-500 font-mono">높을수록 돛 밑단(Foot)을 팽팽히 당겨 오목 깊이를 감소(평평화)시킴</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. JIB SAIL & WINCH CONTROLS -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+            집세일 & 윈치 (Jib Sail & Winch)
+          </h2>
+          <button id="btnToggleJib" class="px-2 py-0.5 text-[10px] rounded bg-blue-950 text-blue-300 border border-blue-800 font-semibold transition">
+            집세일: 전개중 (UP)
+          </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <!-- Jib Sheet -->
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <label for="sliderJibSheet" class="text-slate-300">집세일 시트 (Jib Sheet Trim):</label>
+              <span id="valJibSheet" class="text-blue-400 font-bold">28°</span>
+            </div>
+            <input id="sliderJibSheet" type="range" min="8" max="80" value="28" step="1" 
+                   class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500">
+          </div>
+
+          <!-- Jib Winch Grinder Button -->
+          <div class="flex items-center gap-2">
+            <button id="btnGrindJib" class="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 active:scale-98 font-bold text-xs text-white shadow-md flex items-center justify-center gap-1.5 transition">
+              <span>코밍 윈치 그라인딩 (누르고 있기)</span>
+            </button>
+            <span id="hudWinchSpeed" class="text-xs font-mono font-bold text-slate-400 w-24 text-right">0 deg/s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. GENNAKER (ASYMMETRIC SPINNAKER) CONTROLS -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-fuchsia-400"></span>
+            제네이커 (Gennaker / Spinnaker)
+          </h2>
+          <button id="btnToggleGennaker" class="px-2.5 py-1 text-xs rounded-lg bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-800 font-bold transition hover:bg-fuchsia-900">
+            제네이커 전개 (HOIST)
+          </button>
+        </div>
+
+        <div class="space-y-2 text-xs">
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <label for="sliderGennakerSheet" class="text-slate-300">제네이커 가이시트 (Gennaker Sheet):</label>
+              <span id="valGennakerSheet" class="text-fuchsia-400 font-bold">55°</span>
+            </div>
+            <input id="sliderGennakerSheet" type="range" min="30" max="95" value="55" step="1" 
+                   class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-fuchsia-500">
+          </div>
+          <p class="text-[10px] text-slate-400">
+            풍하 세일링(110°~165°) 시 카본 바우스프릿을 뻗고 제네이커를 펼치면 강력한 양력과 활주(Planing) 속도를 얻습니다.
+          </p>
+        </div>
+      </div>
+
+      <!-- 5. ENVIRONMENT (WIND CONTROLS) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            환경 조건 (Wind Environment)
+          </h2>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-xs">
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <span class="text-slate-300">진풍속:</span>
+              <span id="valTWS" class="text-amber-400 font-bold">14.0 kts</span>
+            </div>
+            <input id="sliderTWS" type="range" min="4" max="32" value="14" step="0.5" 
+                   class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+          </div>
+          <div class="space-y-1">
+            <div class="flex justify-between font-mono">
+              <span class="text-slate-300">진풍향:</span>
+              <span id="valTWD" class="text-cyan-400 font-bold">0° (북풍)</span>
+            </div>
+            <input id="sliderTWD" type="range" min="0" max="355" value="0" step="5" 
+                   class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- THREE.JS HIGH-END REALISTIC RENDERING SCRIPT -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    /* =========================================================================
+       1. PROCEDURAL TEXTURES (Keel boat Official Gelcoat, Non-skid & Smoke Particle)
+       ========================================================================= */
+    function generateSmokeTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+
+      const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+      grad.addColorStop(0.35, 'rgba(240, 248, 255, 0.45)');
+      grad.addColorStop(0.75, 'rgba(224, 242, 254, 0.12)');
+      grad.addColorStop(1, 'rgba(224, 242, 254, 0)');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    // Creates canvas texture with Keel boat official logo and racing sail numbers
+    function generateJ80SailTexture(sailNumber = '04') {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // Horizontal batten pocket reinforcement lines
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.8)';
+      ctx.lineWidth = 4;
+      for (let y = 200; y <= 850; y += 180) {
+        ctx.beginPath();
+        ctx.moveTo(80, y);
+        ctx.lineTo(950, y);
+        ctx.stroke();
+      }
+
+      // Keel boat Official Class Logo (Dark Navy Blue)
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 95px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('J', 512, 280);
+      ctx.font = 'bold 85px sans-serif';
+      ctx.fillText('80', 512, 360);
+
+      // Large Racing Sail Number
+      ctx.font = 'bold 140px sans-serif';
+      ctx.fillText(sailNumber, 512, 540);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    }
+
+    /* =========================================================================
+       2. VPP AERODYNAMICS & RIGGING MODEL
+       ========================================================================= */
+    class AdvancedYachtDynamics {
+      constructor() {
+        this.displacementKg = 1450.0;
+        this.speedKts = 6.4;
+        this.heelAngleDeg = 14.0;
+        this.yawAngleDeg = 90.0;
+        this.airDensity = 1.225;
+        this.waterDensity = 1025.0;
+
+        this.isJibHoisted = true;
+        this.isGennakerHoisted = false;
+
+        this.boomVangPercent = 50.0;
+        this.outhaulPercent = 60.0;
+        this.mainsheetAngle = 25.0;
+        this.jibSheetAngle = 28.0;
+        this.gennakerSheetAngle = 55.0;
+
+        this.trueWindSpeedKts = 14.0;
+        this.trueWindDirDeg = 0.0;
+
+        this.windwardTelltaleAngle = 0.0;
+        this.leewardTelltaleAngle = 0.0;
+
+        this.isMainsailOptimal = false;
+        this.isJibOptimal = false;
+        this.isGennakerOptimal = false;
+        this.isOverallOptimal = false;
+      }
+
+      evaluateCl(aoa, camberRatio) {
+        if (aoa <= 0) return 0.02;
+        const peakAoA = 13.0 + camberRatio * 30.0;
+        if (aoa <= peakAoA) {
+          return 0.1 + (1.55 + camberRatio * 0.8) * (aoa / peakAoA);
+        } else if (aoa <= peakAoA + 7.0) {
+          const stallFrac = (aoa - peakAoA) / 7.0;
+          return (1.55 + camberRatio * 0.8) * (1.0 - stallFrac * 0.45);
+        } else {
+          return 0.75 * Math.max(0.1, Math.cos((aoa - peakAoA) * Math.PI / 180));
+        }
+      }
+
+      evaluateCd(aoa) {
+        if (aoa <= 0) return 0.04;
+        return 0.05 + 1.2 * Math.pow(aoa / 90.0, 1.8);
+      }
+
+      update(deltaTime) {
+        const twsMs = this.trueWindSpeedKts * 0.514444;
+        const bsMs = this.speedKts * 0.514444;
+
+        const twRad = this.trueWindDirDeg * Math.PI / 180;
+        const bhRad = this.yawAngleDeg * Math.PI / 180;
+
+        const vtw_x = twsMs * Math.sin(twRad);
+        const vtw_y = twsMs * Math.cos(twRad);
+
+        const vb_x = bsMs * Math.sin(bhRad);
+        const vb_y = bsMs * Math.cos(bhRad);
+
+        const vapp_x = vtw_x - vb_x;
+        const vapp_y = vtw_y - vb_y;
+        const vappSpeed = Math.hypot(vapp_x, vapp_y);
+
+        let awaRad = Math.atan2(vapp_x, vapp_y) - bhRad;
+        while (awaRad > Math.PI) awaRad -= 2 * Math.PI;
+        while (awaRad < -Math.PI) awaRad += 2 * Math.PI;
+        const awaDeg = Math.abs(awaRad * 180 / Math.PI);
+        const signedAwaDeg = awaRad * 180 / Math.PI;
+
+        // Mainsail with Outhaul (camber) and Vang (twist)
+        const mainAoA = Math.abs(awaDeg - this.mainsheetAngle);
+        const mainCamber = 0.14 - (this.outhaulPercent / 100.0) * 0.08;
+        const mainCl = this.evaluateCl(mainAoA, mainCamber);
+        const mainCd = this.evaluateCd(mainAoA);
+        const q = 0.5 * this.airDensity * (vappSpeed * vappSpeed);
+        const mainArea = 21.0;
+        const mainLift = q * mainArea * mainCl;
+        const mainDrag = q * mainArea * mainCd;
+
+        // Jib
+        let jibLift = 0, jibDrag = 0, jibAoA = 0;
+        if (this.isJibHoisted) {
+          jibAoA = Math.abs(awaDeg - this.jibSheetAngle);
+          const jibCl = this.evaluateCl(jibAoA, 0.10);
+          const jibCd = this.evaluateCd(jibAoA);
+          const jibArea = 13.5;
+          jibLift = q * jibArea * jibCl;
+          jibDrag = q * jibArea * jibCd;
+        }
+
+        // Gennaker
+        let genDrive = 0, genHeel = 0;
+        if (this.isGennakerHoisted && awaDeg > 80.0 && awaDeg < 168.0) {
+          const genAoA = Math.abs(awaDeg - this.gennakerSheetAngle);
+          const genCl = Math.max(0, 2.2 * Math.sin(genAoA * Math.PI / 60.0));
+          const genArea = 65.0;
+          const genForce = q * genArea * genCl * 0.55;
+          genDrive = genForce * 0.85;
+          genHeel = genForce * 0.45;
+        }
+
+        const mainRad = this.mainsheetAngle * Math.PI / 180;
+        const jibRad = this.jibSheetAngle * Math.PI / 180;
+
+        let totalDrive = Math.max(0, mainLift * Math.sin(mainRad) - mainDrag * Math.cos(mainRad));
+        let totalHeel = mainLift * Math.cos(mainRad) + mainDrag * Math.sin(mainRad);
+
+        if (this.isJibHoisted) {
+          totalDrive += Math.max(0, jibLift * Math.sin(jibRad) - jibDrag * Math.cos(jibRad));
+          totalHeel += jibLift * Math.cos(jibRad) + jibDrag * Math.sin(jibRad);
+        }
+
+        totalDrive += genDrive;
+        totalHeel += genHeel;
+
+        // Telltales
+        const deltaAoA = jibAoA - 13.5;
+        if (Math.abs(deltaAoA) < 2.5) {
+          this.windwardTelltaleAngle = 0.0;
+          this.leewardTelltaleAngle = 0.0;
+        } else if (deltaAoA < 0) {
+          this.windwardTelltaleAngle = Math.min(85, -deltaAoA * 15.0);
+          this.leewardTelltaleAngle = 0.0;
+        } else {
+          this.windwardTelltaleAngle = 0.0;
+          this.leewardTelltaleAngle = Math.min(75, deltaAoA * 12.0);
+        }
+
+        this.isMainsailOptimal = (Math.abs(mainAoA - 14.0) < 2.5);
+        this.isJibOptimal = this.isJibHoisted && (Math.abs(this.windwardTelltaleAngle) < 5.0 && Math.abs(this.leewardTelltaleAngle) < 5.0);
+        this.isGennakerOptimal = this.isGennakerHoisted && (genDrive > 400.0);
+        this.isOverallOptimal = this.isMainsailOptimal && (!this.isJibHoisted || this.isJibOptimal);
+
+        const hullCd = (this.isGennakerHoisted && this.speedKts > 9.0) ? 0.16 : 0.22;
+        const waterDrag = 0.5 * this.waterDensity * (bsMs * bsMs) * hullCd * 7.8;
+        const netForce = totalDrive - waterDrag;
+        const accel = netForce / this.displacementKg;
+
+        const newSpeedMs = Math.max(0.1, bsMs + accel * deltaTime);
+        this.speedKts = newSpeedMs * 1.94384;
+
+        const targetSinHeel = (totalHeel * 4.3) / (this.displacementKg * 9.81 * 1.35);
+        const targetHeelDeg = Math.asin(Math.min(0.85, Math.max(0.0, targetSinHeel))) * 180 / Math.PI;
+        this.heelAngleDeg += (targetHeelDeg - this.heelAngleDeg) * Math.min(1.0, 3.5 * deltaTime);
+
+        return {
+          apparentWindSpeedKts: vappSpeed * 1.94384,
+          apparentWindAngleDeg: awaDeg,
+          signedAwaDeg: signedAwaDeg,
+          mainAoA,
+          jibAoA,
+          driveForceN: totalDrive,
+          heelForceN: totalHeel,
+          speedKts: this.speedKts,
+          heelAngleDeg: this.heelAngleDeg
+        };
+      }
+    }
+
+    /* =========================================================================
+       3. BRIGHT DAYLIGHT HAN RIVER ENVIRONMENT (Nanji & Bridges)
+       ========================================================================= */
+    function buildRealisticHanRiver(scene) {
+      const worldGroup = new THREE.Group();
+
+      const skyGeo = new THREE.SphereGeometry(2500, 32, 24);
+      const skyMat = new THREE.MeshBasicMaterial({ color: 0x87ceeb, side: THREE.BackSide });
+      const skyDome = new THREE.Mesh(skyGeo, skyMat);
+      worldGroup.add(skyDome);
+
+      const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65 });
+      for (let i = 0; i < 20; i++) {
+        const cloud = new THREE.Mesh(new THREE.DodecahedronGeometry(85 + Math.random() * 60, 1), cloudMat);
+        cloud.position.set((Math.random() - 0.5) * 3200, 320 + Math.random() * 120, (Math.random() - 0.5) * 2600);
+        cloud.scale.set(2.6, 0.6, 1.4);
+        worldGroup.add(cloud);
+      }
+
+      // Water Plane
+      const riverGeo = new THREE.PlaneGeometry(4500, 1600, 128, 128);
+      riverGeo.rotateX(-Math.PI * 0.5);
+      const riverMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        roughness: 0.08,
+        metalness: 0.65,
+        transparent: true,
+        opacity: 0.92
+      });
+      const riverMesh = new THREE.Mesh(riverGeo, riverMat);
+      riverMesh.position.set(0, -0.05, 0);
+      riverMesh.receiveShadow = true;
+      worldGroup.add(riverMesh);
+
+      // North Bank (Nanji Hangang Park)
+      const grassMat = new THREE.MeshStandardMaterial({ color: 0x3f6212, roughness: 0.85 });
+      const revetmentMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6 });
+
+      const northBank = new THREE.Mesh(new THREE.BoxGeometry(4500, 4.0, 500), grassMat);
+      northBank.position.set(0, 1.8, 620);
+      northBank.receiveShadow = true;
+      worldGroup.add(northBank);
+
+      const northRevetment = new THREE.Mesh(new THREE.BoxGeometry(4500, 2.5, 25), revetmentMat);
+      northRevetment.position.set(0, 0.6, 370);
+      worldGroup.add(northRevetment);
+
+      // Nanji Marina Pontoon Docks
+      const pontoonMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+      for (let p = -2; p <= 2; p++) {
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(18, 0.8, 120), pontoonMat);
+        pier.position.set(120 + p * 65, 0.35, 310);
+        worldGroup.add(pier);
+      }
+
+      // Sky Park & Noeul Park Plateau Hills (~98m altitude)
+      const hillMat = new THREE.MeshStandardMaterial({ color: 0x2e5a1c, roughness: 0.9 });
+      const skyPark = new THREE.Mesh(new THREE.CylinderGeometry(280, 480, 95, 24), hillMat);
+      skyPark.position.set(300, 47, 1050);
+      skyPark.scale.set(1.6, 1.0, 1.0);
+      worldGroup.add(skyPark);
+
+      const noeulPark = new THREE.Mesh(new THREE.CylinderGeometry(260, 440, 90, 24), hillMat);
+      noeulPark.position.set(-650, 45, 1080);
+      noeulPark.scale.set(1.5, 1.0, 1.0);
+      worldGroup.add(noeulPark);
+
+      // South Bank
+      const southBank = new THREE.Mesh(new THREE.BoxGeometry(4500, 4.0, 500), grassMat);
+      southBank.position.set(0, 1.8, -620);
+      southBank.receiveShadow = true;
+      worldGroup.add(southBank);
+
+      // World Cup Bridge (월드컵대교 - 100m 78도 경사 주탑)
+      const wcBridge = new THREE.Group();
+      wcBridge.position.set(1350, 0, 0);
+      const bridgeConcMat = new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0.5 });
+      const redCrownMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.3, metalness: 0.6 });
+      const cableMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.2, metalness: 0.9 });
+
+      const wcDeck = new THREE.Mesh(new THREE.BoxGeometry(32, 5, 1350), bridgeConcMat);
+      wcDeck.position.y = 15;
+      wcBridge.add(wcDeck);
+
+      const wcPylon = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 7.5, 96, 16), redCrownMat);
+      wcPylon.position.set(0, 52, 140);
+      wcPylon.rotation.x = 0.21;
+      wcPylon.castShadow = true;
+      wcBridge.add(wcPylon);
+
+      for (let c = -6; c <= 6; c++) {
+        if (c === 0) continue;
+        const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 125, 8), cableMat);
+        cable.position.set(0, 48, 140 + c * 38);
+        cable.rotation.x = (c * 0.08);
+        wcBridge.add(cable);
+      }
+      worldGroup.add(wcBridge);
+
+      // Gayang Bridge (가양대교)
+      const gyBridge = new THREE.Group();
+      gyBridge.position.set(-1450, 0, 0);
+      const gyDeck = new THREE.Mesh(new THREE.BoxGeometry(28, 4.5, 1350), bridgeConcMat);
+      gyDeck.position.y = 13;
+      gyBridge.add(gyDeck);
+      worldGroup.add(gyBridge);
+
+      scene.add(worldGroup);
+      return { worldGroup, riverMesh };
+    }
+
+    /* =========================================================================
+       4. AUTHENTIC Keel boat ONE-DESIGN RACING YACHT MODEL (MATCHING PHOTOS)
+       ========================================================================= */
+    function buildAuthenticJ80(scene, isPlayer = true, sailNum = '04') {
+      const yacht = new THREE.Group();
+
+      const gelcoatMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.12, metalness: 0.05 });
+      const nonSkidDeckMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 });
+      const darkGlassMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.1, metalness: 0.9 });
+      const stainlessMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.15, metalness: 0.95 });
+      const sparMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35, metalness: 0.75 });
+      const carbonTillerMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.3, metalness: 0.8 });
+
+      // Translucent Sailcloth with Keel boat Official Insignia & Battens
+      const sailTex = generateJ80SailTexture(sailNum);
+      const sailMat = new THREE.MeshStandardMaterial({
+        map: sailTex,
+        roughness: 0.35,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95
+      });
+
+      // Gennaker Material
+      const gennakerMat = new THREE.MeshStandardMaterial({
+        color: 0xe11d48,
+        roughness: 0.35,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.92
+      });
+
+      // -------------------------------------------------------------
+      // 1. High-Precision Lofted Hull (Rounded chines, plumb bow, flat planing stern)
+      // -------------------------------------------------------------
+      const numStations = 36;
+      const numRingPoints = 20;
+      const vertices = [];
+      const indices = [];
+
+      for (let i = 0; i <= numStations; i++) {
+        const u = i / numStations;
+        const x = 4.0 - u * 8.0;
+
+        let halfBeam = 0;
+        if (x >= 0) {
+          const frac = (4.0 - x) / 4.0;
+          halfBeam = 1.255 * Math.sin(frac * Math.PI * 0.5) * (1.0 - 0.12 * frac);
+        } else {
+          const frac = (-x) / 4.0;
+          halfBeam = 1.255 - 0.22 * Math.pow(frac, 1.8);
+        }
+
+        const sheerY = 0.42 + 0.25 * Math.pow((x + 0.8) / 4.8, 2);
+        const keelY = (x > 3.8) ? (0.28 + (x - 3.8) * 1.6) : (-0.42 + 0.14 * Math.pow(x / 4.0, 2));
+
+        for (let j = 0; j <= numRingPoints; j++) {
+          const v = j / numRingPoints;
+          const angle = v * Math.PI * 0.5;
+
+          // Super-elliptical rounded chine section (No square box shape!)
+          const z = halfBeam * Math.pow(Math.sin(angle), 0.95);
+          const y = keelY + (sheerY - keelY) * (1.0 - Math.pow(Math.cos(angle), 1.2));
+          vertices.push(x, y, z);
+        }
+      }
+
+      const fullVerts = [];
+      for (let i = 0; i < vertices.length; i += 3) fullVerts.push(vertices[i], vertices[i + 1], vertices[i + 2]);
+      for (let i = 0; i < vertices.length; i += 3) fullVerts.push(vertices[i], vertices[i + 1], -vertices[i + 2]);
+
+      const ptsPerSide = (numStations + 1) * (numRingPoints + 1);
+      for (let i = 0; i < numStations; i++) {
+        for (let j = 0; j < numRingPoints; j++) {
+          const p1 = i * (numRingPoints + 1) + j;
+          const p2 = p1 + 1;
+          const p3 = (i + 1) * (numRingPoints + 1) + j;
+          const p4 = p3 + 1;
+          indices.push(p1, p3, p2, p2, p3, p4);
+
+          const pp1 = ptsPerSide + p1;
+          const pp2 = ptsPerSide + p2;
+          const pp3 = ptsPerSide + p3;
+          const pp4 = ptsPerSide + p4;
+          indices.push(pp1, pp2, pp3, pp2, pp4, pp3);
+        }
+      }
+
+      const hullGeo = new THREE.BufferGeometry();
+      hullGeo.setAttribute('position', new THREE.Float32BufferAttribute(fullVerts, 3));
+      hullGeo.setIndex(indices);
+      hullGeo.computeVertexNormals();
+
+      const hullMesh = new THREE.Mesh(hullGeo, gelcoatMat);
+      hullMesh.castShadow = true;
+      hullMesh.receiveShadow = true;
+      yacht.add(hullMesh);
+
+      // Navy waterline boot-top stripe
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.08, 2.44), new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.2 }));
+      stripe.position.set(-0.15, 0.05, 0);
+      yacht.add(stripe);
+
+      // -------------------------------------------------------------
+      // 2. Molded Non-Skid Deck, Sloping Coachroof & Open Racing Cockpit
+      // -------------------------------------------------------------
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.12, 2.45), nonSkidDeckMat);
+      deck.position.set(-0.1, 0.45, 0);
+      deck.castShadow = true;
+      yacht.add(deck);
+
+      // Low-profile Aerodynamic Coachroof (Matching Image 3)
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 1.45), nonSkidDeckMat);
+      cabin.position.set(1.4, 0.65, 0);
+      cabin.castShadow = true;
+      yacht.add(cabin);
+
+      // Teardrop Side Windows
+      const winL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.04), darkGlassMat);
+      winL.position.set(1.4, 0.68, 0.74);
+      const winR = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.04), darkGlassMat);
+      winR.position.set(1.4, 0.68, -0.74);
+      yacht.add(winL, winR);
+
+      // Foredeck Round Hatch
+      const bowHatch = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 16), darkGlassMat);
+      bowHatch.position.set(2.8, 0.52, 0);
+      yacht.add(bowHatch);
+
+      // Deep Recessed Racing Cockpit Sole with Molded Centerline Foot Brace
+      const cockpit = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.05, 1.35), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.7 }));
+      cockpit.position.set(-1.8, 0.20, 0);
+      cockpit.receiveShadow = true;
+      yacht.add(cockpit);
+
+      // Centerline Foot-brace Ridge (Crucial for hiking crew!)
+      const footBrace = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.08), sparMat);
+      footBrace.position.set(-1.8, 0.26, 0);
+      yacht.add(footBrace);
+
+      // Traveler Track with Mainsheet Block
+      const traveler = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 1.55), stainlessMat);
+      traveler.position.set(-2.0, 0.40, 0);
+      yacht.add(traveler);
+
+      // -------------------------------------------------------------
+      // 3. Keel boat AUTHENTIC TILLER & HIKING STICK (NO STEERING WHEEL!)
+      // -------------------------------------------------------------
+      const rudderGroup = new THREE.Group();
+      rudderGroup.position.set(-4.02, 0.45, 0);
+
+      // Transom-hung spade rudder blade
+      const rudderBlade = new THREE.Mesh(new THREE.BoxGeometry(0.38, 1.35, 0.06), gelcoatMat);
+      rudderBlade.position.set(-0.12, -0.75, 0);
+      rudderGroup.add(rudderBlade);
+
+      // Long Racing Tiller extending forward into the cockpit
+      const tiller = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 1.65, 12), carbonTillerMat);
+      tiller.rotation.z = -Math.PI * 0.48;
+      tiller.position.set(0.8, 0.12, 0);
+      rudderGroup.add(tiller);
+
+      // Telescopic Carbon Hiking Extension Stick with Universal Joint
+      const hikingStickGroup = new THREE.Group();
+      hikingStickGroup.position.set(1.5, 0.22, 0);
+      const hikingStick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.25, 8), sparMat);
+      hikingStick.position.set(0, 0, 0.45);
+      hikingStick.rotation.y = 0.55;
+      hikingStickGroup.add(hikingStick);
+      rudderGroup.add(hikingStickGroup);
+
+      yacht.add(rudderGroup);
+
+      // -------------------------------------------------------------
+      // 4. Coaming Harken Primary Winches with Handle & Lifelines
+      // -------------------------------------------------------------
+      const winchGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.18, 16);
+      const winchStarboard = new THREE.Mesh(winchGeo, stainlessMat);
+      winchStarboard.position.set(-1.2, 0.56, 0.98);
+      winchStarboard.castShadow = true;
+      const winchPort = new THREE.Mesh(winchGeo, stainlessMat);
+      winchPort.position.set(-1.2, 0.56, -0.98);
+      winchPort.castShadow = true;
+      yacht.add(winchStarboard, winchPort);
+
+      // Chrome Winch Handle on Starboard Winch
+      const winchHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.28, 8), stainlessMat);
+      winchHandle.rotation.z = Math.PI * 0.5;
+      winchHandle.position.set(-1.08, 0.68, 0.98);
+      yacht.add(winchHandle);
+
+      // Stainless Stanchions with Double Wire Lifelines
+      for (let sx of [-3.4, -2.0, -0.6, 0.8, 2.2]) {
+        for (let sz of [-1.15, 1.15]) {
+          const stanchion = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.62, 8), stainlessMat);
+          stanchion.position.set(sx, 0.74, sz);
+          yacht.add(stanchion);
+        }
+      }
+
+      // -------------------------------------------------------------
+      // 5. 650kg Lead Torpedo Bulb Keel & NACA Fin
+      // -------------------------------------------------------------
+      const keelFin = new THREE.Mesh(new THREE.BoxGeometry(0.75, 1.15, 0.08), gelcoatMat);
+      keelFin.position.set(-0.15, -0.95, 0);
+      yacht.add(keelFin);
+
+      const bulb = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.45, 16), new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.6 }));
+      bulb.rotation.z = Math.PI * 0.5;
+      bulb.position.set(-0.25, -1.48, 0);
+      bulb.castShadow = true;
+      yacht.add(bulb);
+
+      // -------------------------------------------------------------
+      // 6. Fractional Rigging: Mast, Double Spreaders, Bowsprit
+      // -------------------------------------------------------------
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 10.2, 16), sparMat);
+      mast.position.set(0.85, 5.6, 0);
+      mast.castShadow = true;
+      yacht.add(mast);
+
+      const spr1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 1.6), sparMat);
+      spr1.position.set(0.85, 4.6, 0);
+      const spr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 1.2), sparMat);
+      spr2.position.set(0.85, 7.4, 0);
+      yacht.add(spr1, spr2);
+
+      const windexGroup = new THREE.Group();
+      windexGroup.position.set(0.85, 10.8, 0);
+      const windexVane = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.4, 4), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+      windexVane.rotation.x = Math.PI * 0.5;
+      windexGroup.add(windexVane);
+      yacht.add(windexGroup);
+
+      // Carbon Retractable Bowsprit (카본 바우스프릿)
+      const bowsprit = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 16), sparMat);
+      bowsprit.rotation.z = Math.PI * 0.5;
+      bowsprit.position.set(4.5, 0.58, 0);
+      yacht.add(bowsprit);
+
+      // Boom Pivot Group with Rigid Gas Vang
+      const boomGroup = new THREE.Group();
+      boomGroup.position.set(0.85, 1.25, 0);
+
+      const boomMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 3.75, 16), sparMat);
+      boomMesh.rotation.z = Math.PI * 0.5;
+      boomMesh.position.set(-1.875, 0, 0);
+      boomMesh.castShadow = true;
+      boomGroup.add(boomMesh);
+
+      // Rigid Gas-strut Boom Vang (Kicker)
+      const boomVangStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.2, 8), stainlessMat);
+      boomVangStrut.position.set(-0.6, -0.35, 0);
+      boomVangStrut.rotation.z = 0.55;
+      boomGroup.add(boomVangStrut);
+
+      // -------------------------------------------------------------
+      // 7. Mathematically Accurate Mainsail Mesh (Windward Concave Pocket!)
+      // -------------------------------------------------------------
+      const mainsailGeo = new THREE.PlaneGeometry(3.6, 8.8, 24, 24);
+      mainsailGeo.translate(-1.8, 4.4, 0);
+      const mainsailMesh = new THREE.Mesh(mainsailGeo, sailMat);
+      mainsailMesh.castShadow = true;
+      boomGroup.add(mainsailMesh);
+      yacht.add(boomGroup);
+
+      // -------------------------------------------------------------
+      // 8. Jib Sail with Real-Time Telltales
+      // -------------------------------------------------------------
+      const jibGroup = new THREE.Group();
+      const jibGeo = new THREE.BufferGeometry();
+      const jibVerts = new Float32Array([
+        3.9, 0.6, 0.0,
+        0.85, 8.8, 0.0,
+        0.5, 1.2, 0.55
+      ]);
+      jibGeo.setAttribute('position', new THREE.BufferAttribute(jibVerts, 3));
+      jibGeo.computeVertexNormals();
+      const jibMesh = new THREE.Mesh(jibGeo, sailMat);
+      jibMesh.castShadow = true;
+      jibGroup.add(jibMesh);
+
+      const telltaleWindward = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.38, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+      telltaleWindward.position.set(2.0, 3.2, 0.28);
+      telltaleWindward.geometry.rotateZ(Math.PI * 0.5);
+      jibGroup.add(telltaleWindward);
+
+      const telltaleLeeward = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.38, 8), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+      telltaleLeeward.position.set(2.0, 3.2, -0.28);
+      telltaleLeeward.geometry.rotateZ(Math.PI * 0.5);
+      jibGroup.add(telltaleLeeward);
+      yacht.add(jibGroup);
+
+      // -------------------------------------------------------------
+      // 9. Gennaker (Asymmetric Spinnaker)
+      // -------------------------------------------------------------
+      const gennakerGroup = new THREE.Group();
+      const genGeo = new THREE.SphereGeometry(3.8, 24, 24, 0, Math.PI, 0, Math.PI * 0.7);
+      genGeo.scale(1.1, 1.8, 0.85);
+      const gennakerMesh = new THREE.Mesh(genGeo, gennakerMat);
+      gennakerMesh.position.set(3.2, 5.0, 1.2);
+      gennakerMesh.rotation.set(0.2, -0.4, 0.1);
+      gennakerMesh.castShadow = true;
+      gennakerGroup.add(gennakerMesh);
+      gennakerGroup.visible = false;
+      yacht.add(gennakerGroup);
+
+      // Twin Wake Foam Trail
+      const wakeGeo = new THREE.PlaneGeometry(14, 3.8);
+      wakeGeo.rotateX(-Math.PI * 0.5);
+      const wakeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+      const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat);
+      wakeMesh.position.set(-9.5, -0.02, 0);
+      yacht.add(wakeMesh);
+
+      scene.add(yacht);
+
+      return {
+        yacht,
+        rudderGroup,
+        hikingStickGroup,
+        boomGroup,
+        mainsailMesh,
+        mainsailGeo,
+        jibGroup,
+        jibMesh,
+        telltaleWindward,
+        telltaleLeeward,
+        gennakerGroup,
+        gennakerMesh,
+        bowsprit,
+        windexGroup,
+        winchStarboard,
+        wakeMesh
+      };
+    }
+
+    /* =========================================================================
+       5. PHYSICAL AERODYNAMIC SMOKE FLOW SYSTEM (NO PENETRATION, ACCELERATION)
+       ========================================================================= */
+    function createPhysicalSmokeSystem(scene, count = 280) {
+      const smokeTex = generateSmokeTexture();
+      const smokeGeo = new THREE.BufferGeometry();
+      const posArray = new Float32Array(count * 3);
+      const particles = [];
+
+      for (let i = 0; i < count; i++) {
+        const streamIdx = i % 10;
+        const streamY = 1.2 + streamIdx * 0.88;
+
+        posArray[i * 3 + 0] = 8.5 - (i / count) * 18.0;
+        posArray[i * 3 + 1] = streamY;
+        posArray[i * 3 + 2] = (Math.random() - 0.5) * 2.2;
+
+        particles.push({
+          streamY,
+          x: 8.5 - (i / count) * 18.0,
+          speedBase: 0.16 + (i % 3) * 0.03,
+          isLeewardSide: (i % 2 === 0), // Half windward, half leeward
+          lateralOffset: (Math.random() - 0.5) * 0.15
+        });
+      }
+
+      smokeGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+
+      const smokeMat = new THREE.PointsMaterial({
+        size: 0.95,
+        map: smokeTex,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+
+      const smokePoints = new THREE.Points(smokeGeo, smokeMat);
+      scene.add(smokePoints);
+
+      return { smokePoints, particles, count };
+    }
+
+    /* =========================================================================
+       6. MASTER SIMULATION CONTROLLER & ANIMATION LOOP
+       ========================================================================= */
+    window.addEventListener('DOMContentLoaded', () => {
+      const container = document.getElementById('webglContainer');
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 5000);
+      camera.position.set(-3.2, 1.45, 0.25); // Skipper Cockpit at Tiller
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.35;
+      container.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxPolarAngle = Math.PI * 0.495;
+      controls.minDistance = 1.8;
+      controls.maxDistance = 600;
+      controls.target.set(3.5, 2.5, 0);
+
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x0284c7, 1.15);
+      scene.add(hemiLight);
+
+      const sunLight = new THREE.DirectionalLight(0xfffaed, 2.8);
+      sunLight.position.set(350, 500, 300);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      scene.add(sunLight);
+
+      // Environment & Player Keel boat
+      const riverEnv = buildRealisticHanRiver(scene);
+      const playerYacht = buildAuthenticJ80(scene, true, '04');
+
+      // Fleet of Keel boats in the Background (Matching User Photos!)
+      const fleetYachts = [];
+      const fleetConfigs = [
+        { x: 18, z: 22, rot: 0.05, num: '01' },
+        { x: 38, z: 45, rot: 0.06, num: '10' },
+        { x: -28, z: -35, rot: 0.04, num: '03' }
+      ];
+      fleetConfigs.forEach(cfg => {
+        const boat = buildAuthenticJ80(scene, false, cfg.num);
+        boat.yacht.position.set(cfg.x, 0, cfg.z);
+        boat.yacht.rotation.y = cfg.rot;
+        fleetYachts.push(boat);
+      });
+
+      // Scientific Physical Smoke System
+      const smokeSystem = createPhysicalSmokeSystem(scene, 280);
+
+      // Dynamics Model
+      const dynamics = new AdvancedYachtDynamics();
+
+      // UI References
+      const sliderHeading = document.getElementById('sliderHeading');
+      const sliderMainsheet = document.getElementById('sliderMainsheet');
+      const sliderBoomVang = document.getElementById('sliderBoomVang');
+      const sliderOuthaul = document.getElementById('sliderOuthaul');
+      const sliderJibSheet = document.getElementById('sliderJibSheet');
+      const sliderGennakerSheet = document.getElementById('sliderGennakerSheet');
+      const sliderTWS = document.getElementById('sliderTWS');
+      const sliderTWD = document.getElementById('sliderTWD');
+
+      const valHeading = document.getElementById('valHeading');
+      const valRudder = document.getElementById('valRudder');
+      const valMainsheet = document.getElementById('valMainsheet');
+      const valBoomVang = document.getElementById('valBoomVang');
+      const valOuthaul = document.getElementById('valOuthaul');
+      const valJibSheet = document.getElementById('valJibSheet');
+      const valGennakerSheet = document.getElementById('valGennakerSheet');
+      const valTWS = document.getElementById('valTWS');
+      const valTWD = document.getElementById('valTWD');
+
+      const hudBoatSpeed = document.getElementById('hudBoatSpeed');
+      const hudHeelAngle = document.getElementById('hudHeelAngle');
+      const hudWindwardTelltale = document.getElementById('hudWindwardTelltale');
+      const hudLeewardTelltale = document.getElementById('hudLeewardTelltale');
+      const telltaleQualityBar = document.getElementById('telltaleQualityBar');
+
+      const btnToggleJib = document.getElementById('btnToggleJib');
+      const btnToggleGennaker = document.getElementById('btnToggleGennaker');
+      const btnGrindJib = document.getElementById('btnGrindJib');
+      const hudWinchSpeed = document.getElementById('hudWinchSpeed');
+
+      const optimalTrimBanner = document.getElementById('optimalTrimBanner');
+      const viewportTrimAlert = document.getElementById('viewportTrimAlert');
+      const trimAlertTitle = document.getElementById('trimAlertTitle');
+      const trimAlertDesc = document.getElementById('trimAlertDesc');
+      const compassArrow = document.getElementById('compassArrow');
+
+      window.applyPreset = (heading, main, jib) => {
+        sliderHeading.value = heading;
+        sliderMainsheet.value = main;
+        sliderJibSheet.value = jib;
+      };
+
+      // Camera Presets
+      document.getElementById('camCockpit').onclick = () => {
+        camera.position.set(-3.2, 1.45, 0.25);
+        controls.target.set(3.5, 2.5, 0);
+      };
+      document.getElementById('camTelltale').onclick = () => {
+        camera.position.set(0.2, 2.8, 1.8);
+        controls.target.set(2.0, 3.2, 0);
+      };
+      document.getElementById('camOrbit').onclick = () => {
+        camera.position.set(12, 6, 14);
+        controls.target.set(0, 2.5, 0);
+      };
+      document.getElementById('camMast').onclick = () => {
+        camera.position.set(0.85, 10.8, 0);
+        controls.target.set(0, 0, 0);
+      };
+      document.getElementById('camFleet').onclick = () => {
+        camera.position.set(-22, 6.5, 18);
+        controls.target.set(8, 2.0, 10);
+      };
+
+      // Jib Toggle
+      btnToggleJib.onclick = () => {
+        dynamics.isJibHoisted = !dynamics.isJibHoisted;
+        playerYacht.jibGroup.visible = dynamics.isJibHoisted;
+        btnToggleJib.innerText = dynamics.isJibHoisted ? '집세일: 전개중 (UP)' : '집세일: 다운 (FURLED)';
+        btnToggleJib.className = dynamics.isJibHoisted 
+          ? 'px-2 py-0.5 text-[10px] rounded bg-blue-950 text-blue-300 border border-blue-800 font-semibold transition'
+          : 'px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-400 border border-slate-700 font-semibold transition';
+      };
+
+      // Gennaker Toggle
+      btnToggleGennaker.onclick = () => {
+        dynamics.isGennakerHoisted = !dynamics.isGennakerHoisted;
+        playerYacht.gennakerGroup.visible = dynamics.isGennakerHoisted;
+        playerYacht.bowsprit.position.x = dynamics.isGennakerHoisted ? 5.2 : 4.4;
+
+        if (dynamics.isGennakerHoisted) {
+          btnToggleGennaker.innerText = '제네이커 다운 (DOUSE)';
+          btnToggleGennaker.className = 'px-2.5 py-1 text-xs rounded-lg bg-rose-950 text-rose-300 border border-rose-800 font-bold transition';
+        } else {
+          btnToggleGennaker.innerText = '제네이커 전개 (HOIST)';
+          btnToggleGennaker.className = 'px-2.5 py-1 text-xs rounded-lg bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-800 font-bold transition hover:bg-fuchsia-900';
+        }
+      };
+
+      // Winch Grinding Touch / Mouse
+      let isGrinding = false;
+      const startGrind = () => { isGrinding = true; btnGrindJib.classList.add('ring-2', 'ring-cyan-400'); };
+      const stopGrind = () => { isGrinding = false; btnGrindJib.classList.remove('ring-2', 'ring-cyan-400'); };
+      btnGrindJib.addEventListener('mousedown', startGrind);
+      window.addEventListener('mouseup', stopGrind);
+      btnGrindJib.addEventListener('touchstart', (e) => { e.preventDefault(); startGrind(); });
+      window.addEventListener('touchend', stopGrind);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      });
+
+      // Main Animation Loop
+      let lastTime = performance.now();
+
+      function animate(now) {
+        requestAnimationFrame(animate);
+
+        const dt = Math.min(0.05, (now - lastTime) / 1000);
+        lastTime = now;
+
+        // Sync Controls
+        dynamics.yawAngleDeg = parseFloat(sliderHeading.value);
+        dynamics.mainsheetAngle = parseFloat(sliderMainsheet.value);
+        dynamics.boomVangPercent = parseFloat(sliderBoomVang.value);
+        dynamics.outhaulPercent = parseFloat(sliderOuthaul.value);
+        dynamics.jibSheetAngle = parseFloat(sliderJibSheet.value);
+        dynamics.gennakerSheetAngle = parseFloat(sliderGennakerSheet.value);
+        dynamics.trueWindSpeedKts = parseFloat(sliderTWS.value);
+        dynamics.trueWindDirDeg = parseFloat(sliderTWD.value);
+
+        if (isGrinding) {
+          sliderJibSheet.value = Math.max(8, parseFloat(sliderJibSheet.value) - 18.0 * dt);
+          hudWinchSpeed.innerText = '480 deg/s';
+          playerYacht.winchStarboard.rotation.y += 8.0 * dt;
+        } else {
+          hudWinchSpeed.innerText = '0 deg/s';
+        }
+
+        valHeading.innerText = `침로: ${Math.round(dynamics.yawAngleDeg)}°`;
+        valRudder.innerText = `${Math.round(dynamics.yawAngleDeg)}°`;
+        valMainsheet.innerText = `${Math.round(dynamics.mainsheetAngle)}°`;
+        valBoomVang.innerText = `${Math.round(dynamics.boomVangPercent)}%`;
+        valOuthaul.innerText = `${Math.round(dynamics.outhaulPercent)}%`;
+        valJibSheet.innerText = `${Math.round(dynamics.jibSheetAngle)}°`;
+        valGennakerSheet.innerText = `${Math.round(dynamics.gennakerSheetAngle)}°`;
+        valTWS.innerText = `${dynamics.trueWindSpeedKts.toFixed(1)} kts`;
+        valTWD.innerText = `${Math.round(dynamics.trueWindDirDeg)}°`;
+
+        const sim = dynamics.update(dt);
+
+        hudBoatSpeed.innerText = sim.speedKts.toFixed(1);
+        hudHeelAngle.innerText = `${sim.heelAngleDeg.toFixed(1)}°`;
+
+        // Telltales Quality
+        const wAngle = Math.round(dynamics.windwardTelltaleAngle);
+        const lAngle = Math.round(dynamics.leewardTelltaleAngle);
+        hudWindwardTelltale.innerText = `${wAngle}° ${wAngle === 0 ? '(수평)' : (wAngle > 0 ? '(펄럭임)' : '')}`;
+        hudLeewardTelltale.innerText = `${lAngle}° ${lAngle === 0 ? '(수평)' : (lAngle > 0 ? '(실속처짐)' : '')}`;
+
+        const trimScore = Math.max(0, 100 - (Math.abs(wAngle) + Math.abs(lAngle)) * 1.5);
+        telltaleQualityBar.style.width = `${trimScore}%`;
+        telltaleQualityBar.className = trimScore > 85 ? 'h-full bg-emerald-500' : (trimScore > 50 ? 'h-full bg-amber-500' : 'h-full bg-rose-500');
+
+        playerYacht.telltaleWindward.rotation.z = (wAngle * Math.PI / 180) * 0.7;
+        playerYacht.telltaleLeeward.rotation.z = -(lAngle * Math.PI / 180) * 0.7;
+
+        // Optimal Trim Notification
+        if (dynamics.isOverallOptimal) {
+          optimalTrimBanner.classList.remove('hidden');
+          viewportTrimAlert.style.opacity = '1';
+          viewportTrimAlert.style.transform = 'translate(-50%, 0)';
+          trimAlertTitle.innerText = dynamics.isGennakerHoisted 
+            ? '🚀 제네이커 & 세일 최적 활주 트림 도달!' 
+            : '🎯 메인세일 & 집세일 텔테일 수평 완벽 트림!';
+          trimAlertDesc.innerText = `선속: ${sim.speedKts.toFixed(1)} kts | 한강 난지 수역 최고 효율 항해`;
+        } else {
+          optimalTrimBanner.classList.add('hidden');
+          viewportTrimAlert.style.opacity = '0';
+          viewportTrimAlert.style.transform = 'translate(-50%, -8px)';
+        }
+
+        compassArrow.style.transform = `rotate(${dynamics.yawAngleDeg}deg)`;
+
+        // Heeling and pitch motion
+        const heelRad = (sim.heelAngleDeg * Math.PI / 180);
+        const swellPitch = Math.sin(now * 0.0022) * 0.02;
+        const swellRoll = Math.cos(now * 0.0028) * 0.015;
+
+        playerYacht.yacht.rotation.x = -heelRad + swellRoll;
+        playerYacht.yacht.rotation.z = swellPitch;
+
+        // -------------------------------------------------------------
+        // TILLER STEERING (NO WHEEL! Tiller pivots with rudder angle)
+        // -------------------------------------------------------------
+        const rudderAngle = (dynamics.yawAngleDeg - 90) * 0.008;
+        playerYacht.rudderGroup.rotation.y = rudderAngle;
+        playerYacht.hikingStickGroup.rotation.y = -rudderAngle * 0.5; // Hiking stick follows skipper's hand
+
+        // Background Fleet Motion
+        fleetYachts.forEach((fb, idx) => {
+          fb.yacht.rotation.x = -heelRad * 0.85 + Math.sin(now * 0.002 + idx) * 0.02;
+        });
+
+        // -------------------------------------------------------------
+        // CRITICAL SCIENTIFIC CAMBER: 바람을 받는 쪽이 반드시 "오목(Concave)"!
+        // -------------------------------------------------------------
+        const billowSign = sim.signedAwaDeg >= 0 ? 1.0 : -1.0;
+        const boomRad = -billowSign * (dynamics.mainsheetAngle * Math.PI / 180);
+        playerYacht.boomGroup.rotation.y = boomRad;
+
+        const camberDepth = (0.38 - (dynamics.outhaulPercent / 100.0) * 0.20);
+        const twistFactor = 1.0 - (dynamics.boomVangPercent / 100.0) * 0.7;
+
+        const mainPos = playerYacht.mainsailGeo.attributes.position;
+        for (let i = 0; i < mainPos.count; i++) {
+          const px = mainPos.getX(i);
+          const py = mainPos.getY(i);
+          const hFrac = py / 8.8;
+          const cFrac = Math.abs(px) / 3.6;
+
+          // Concave on wind-facing side, Convex on leeward suction side!
+          const camberZ = billowSign * camberDepth * Math.sin(cFrac * Math.PI) * (1.0 - hFrac * 0.35);
+          const twistOffset = billowSign * Math.sin(cFrac * Math.PI * 0.5) * (hFrac * 0.3 * twistFactor);
+
+          mainPos.setZ(i, camberZ + twistOffset);
+        }
+        playerYacht.mainsailGeo.computeVertexNormals();
+        playerYacht.mainsailGeo.attributes.position.needsUpdate = true;
+
+        playerYacht.windexGroup.rotation.y = (sim.apparentWindAngleDeg * Math.PI / 180);
+
+        // Gennaker Concave Billowing
+        if (dynamics.isGennakerHoisted) {
+          playerYacht.gennakerMesh.rotation.y = -billowSign * (dynamics.gennakerSheetAngle * 0.008);
+          const billow = Math.sin(now * 0.005) * 0.05;
+          playerYacht.gennakerMesh.scale.set(1.1 + billow, 1.8, 0.85 + billow);
+        }
+
+        // Twin Wake Trails
+        const wakeScale = Math.min(3.5, sim.speedKts * 0.35);
+        playerYacht.wakeMesh.scale.set(wakeScale, 1.0, 1.0);
+        playerYacht.wakeMesh.material.opacity = Math.min(0.65, sim.speedKts * 0.08);
+
+        // -------------------------------------------------------------
+        // PHYSICAL AERODYNAMIC SMOKE FLOW (NO PENETRATION, BERNOULLI SPEED)
+        // -------------------------------------------------------------
+        const sPos = smokeSystem.smokePoints.geometry.attributes.position.array;
+        const windSpeedNorm = dynamics.trueWindSpeedKts / 14.0;
+
+        for (let i = 0; i < smokeSystem.count; i++) {
+          const p = smokeSystem.particles[i];
+
+          // Compute distance to sail chord
+          const inSailZone = (p.x > -2.8 && p.x < 2.5);
+
+          // Bernoulli Speed Modulation:
+          // Leeward (suction): ACCELERATES (1.35x ~ 1.55x)
+          // Windward (stagnation): DECELERATES (0.75x ~ 0.85x)
+          let currentSpeed = p.speedBase * windSpeedNorm;
+          if (inSailZone) {
+            if (p.isLeewardSide) {
+              currentSpeed *= 1.45; // Suction acceleration!
+            } else {
+              currentSpeed *= 0.80; // High pressure compression deceleration!
+            }
+          }
+
+          p.x -= currentSpeed;
+
+          // Reset upwind
+          if (p.x < -10.0) {
+            p.x = 8.5;
+            p.streamY = 1.2 + (i % 10) * 0.88;
+          }
+
+          // NO-PENETRATION BOUNDARY ENFORCEMENT:
+          // Smoke follows the curvature of the sail cloth, never penetrating!
+          let targetZ = 0;
+          if (inSailZone) {
+            const chordFrac = (2.5 - p.x) / 5.3;
+            const sailBellyZ = billowSign * camberDepth * Math.sin(chordFrac * Math.PI);
+
+            if (p.isLeewardSide) {
+              // Strictly outside convex suction surface
+              targetZ = sailBellyZ + billowSign * (0.35 + p.lateralOffset);
+            } else {
+              // Strictly inside concave pocket
+              targetZ = sailBellyZ - billowSign * (0.35 + p.lateralOffset);
+            }
+          } else if (p.x <= -2.8) {
+            // Trailing Edge Leech Vortex Spiral
+            const vDist = -2.8 - p.x;
+            const spiralAngle = now * 0.008 + vDist * 2.5;
+            targetZ = billowSign * 0.4 + Math.sin(spiralAngle) * (0.15 + vDist * 0.12);
+          } else {
+            // Upwind approach: clean parallel laminar stream
+            targetZ = p.isLeewardSide ? (billowSign * 0.45) : (-billowSign * 0.45);
+          }
+
+          sPos[i * 3 + 0] = p.x;
+          sPos[i * 3 + 1] = p.streamY;
+          sPos[i * 3 + 2] = targetZ;
+        }
+        smokeSystem.smokePoints.geometry.attributes.position.needsUpdate = true;
+
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      animate(performance.now());
+    });
+  </script>
+</body>
+</html>

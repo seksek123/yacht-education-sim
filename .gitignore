@@ -1,0 +1,11 @@
+# Release & build outputs
+releases/
+build_exe/*.exe
+build_exe/*.rsp
+legacy/yacht-simulation-app/node_modules/
+*.zip
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log

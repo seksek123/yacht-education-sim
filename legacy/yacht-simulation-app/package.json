@@ -1,0 +1,21 @@
+{
+  "name": "yacht-physics-simulation-app",
+  "version": "1.0.0",
+  "description": "Interactive 3D Yacht Dynamics and Human Kinematics Simulation Web App",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "yacht",
+    "physics",
+    "simulation",
+    "aerodynamics",
+    "kinematics"
+  ],
+  "author": "Antigravity Simulation Team",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}
