@@ -1,6 +1,6 @@
 # ⛵ 서울수상레포츠센터 요트교육 시뮬레이터 (`yacht-education-sim`)
 
-> **Keel boat (J80) & ILCA 7 딩기요트 통합 공기역학·인체공학 교육 시뮬레이터 (Ver 12.2)**  
+> **Keel boat (J80) & ILCA 7 딩기요트 통합 공기역학·인체공학 교육 시뮬레이터 (Ver 1.0.0)**  
 > 2D 교육용 각도계와 3D 요트 뷰(Three.js)를 오가며 바람(진풍/겉보기바람), 세일 트림, 텔테일 유동, 2단계 힘 벡터 분해, 선체 힐링(Heel) 및 선원 하이킹 복원력을 실시간으로 학습할 수 있는 인터랙티브 요트 교육 프로그램입니다.  
 > 단일 Windows 실행파일(`.exe`), 오프라인 자립형 PC 웹서버 HTML, 모바일 반응형 HTML 3종 배포 패키지를 원클릭 자동 빌드합니다.
 
@@ -91,12 +91,14 @@ cd D:\My_Apps\yacht-education-sim
 node build_exe/build_release.js
 ```
 
-#### 빌드 옵션
+#### 빌드 옵션 (SemVer `MAJOR.MINOR.PATCH`)
 | 명령어 | 동작 설명 |
 | :--- | :--- |
-| `node build_exe/build_release.js` | `version.json` 기준 **+0.1 자동 버전업** 후 전체 빌드 (예: `v12.2` → `v12.3`) |
+| `node build_exe/build_release.js` | `version.json` 기준 **패치(+0.0.1) 자동 버전업** 후 전체 빌드 (예: `v1.0.0` → `v1.0.1`) |
+| `node build_exe/build_release.js --minor` | 마이너 버전업 후 빌드 (예: `v1.0.0` → `v1.1.0`) |
+| `node build_exe/build_release.js --major` | 메이저 버전업 후 빌드 (예: `v1.0.0` → `v2.0.0`) |
 | `node build_exe/build_release.js --no-bump` | 현재 버전을 유지한 채 재빌드 |
-| `node build_exe/build_release.js --set 13.0` | 특정 버전 번호(`v13.0`)를 직접 지정하여 빌드 |
+| `node build_exe/build_release.js --set 1.0.0` | 특정 버전 번호(`v1.0.0`)를 직접 지정하여 빌드 |
 
 #### 자동 빌드 파이프라인 6단계
 1. **버전 동기화**: `J80_AeroHUD/index.html`(`<title>`, `#appVersionBadge`)과 `build_exe/Program.cs`(어셈블리 메타데이터)의 버전을 자동 동기화합니다.

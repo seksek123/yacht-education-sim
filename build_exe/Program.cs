@@ -8,13 +8,13 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("서울수상레포츠센터 요트교육 시뮬레이터 v12.2")]
-[assembly: AssemblyDescription("Keel boat & ILCA 7 딩기요트 통합 공기역학 시뮬레이터 (Ver 12.2 - Spatial Glass & Luxury Marine Chronometer)")]
+[assembly: AssemblyTitle("서울수상레포츠센터 요트교육 시뮬레이터 v1.0.0")]
+[assembly: AssemblyDescription("Keel boat & ILCA 7 딩기요트 통합 공기역학 시뮬레이터 (Ver 1.0.0 - Spatial Glass & Luxury Marine Chronometer)")]
 [assembly: AssemblyCompany("서울수상레포츠센터 (제작자: 박주호 Park Jooho)")]
 [assembly: AssemblyProduct("Yacht Sailing Aerodynamics Simulator")]
 [assembly: AssemblyCopyright("Copyright © 2024-2026 박주호 (Park Jooho). All Rights Reserved.")]
-[assembly: AssemblyVersion("12.2.0.0")]
-[assembly: AssemblyFileVersion("12.2.0.0")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
 
 namespace YachtAeroHUD
 {

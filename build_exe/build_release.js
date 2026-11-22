@@ -17,27 +17,43 @@ const gifPath = path.join(aeroDir, 'water_bg.gif');
 const jpgPath = path.join(aeroDir, 'water_bg.jpg');
 
 // ---------------------------------------------------------------------------
-// 1. Version Resolution (+0.1 Auto-Increment per Build by Default)
+// 1. Version Resolution (SemVer: MAJOR.MINOR.PATCH, +0.0.1 Patch Bump by Default)
 // ---------------------------------------------------------------------------
 const args = process.argv.slice(2);
 const noBump = args.includes('--no-bump');
+const bumpMajor = args.includes('--major');
+const bumpMinor = args.includes('--minor');
 const setIdx = args.indexOf('--set');
-const explicitSet = setIdx >= 0 && args[setIdx + 1] ? args[setIdx + 1] : null;
+const explicitSet = setIdx >= 0 && args[setIdx + 1] ? args[setIdx + 1].replace(/^v/i, '') : null;
 
-const verCfg = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
-let nextVer;
-if (explicitSet) {
-  nextVer = parseFloat(explicitSet).toFixed(1);
-} else if (noBump) {
-  nextVer = parseFloat(verCfg.version).toFixed(1);
-} else {
-  const curTenths = Math.round(parseFloat(verCfg.version) * 10);
-  const stepTenths = Math.round((verCfg.step || 0.1) * 10);
-  nextVer = ((curTenths + stepTenths) / 10).toFixed(1);
+function parseSemVer(str) {
+  const parts = String(str).replace(/^v/i, '').split('.').map(n => parseInt(n, 10));
+  if (parts.some(Number.isNaN) || parts.length < 2 || parts.length > 3) {
+    throw new Error(`Invalid SemVer version: ${str}`);
+  }
+  return [parts[0], parts[1], parts[2] || 0];
 }
 
-const [majorPart, minorPart] = nextVer.split('.');
-const asmVersion = `${majorPart}.${minorPart}.0.0`;
+const verCfg = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+let [majorPart, minorPart, patchPart] = parseSemVer(verCfg.version);
+
+if (explicitSet) {
+  [majorPart, minorPart, patchPart] = parseSemVer(explicitSet);
+} else if (noBump) {
+  // keep current version
+} else if (bumpMajor) {
+  majorPart += 1;
+  minorPart = 0;
+  patchPart = 0;
+} else if (bumpMinor) {
+  minorPart += 1;
+  patchPart = 0;
+} else {
+  patchPart += 1;
+}
+
+const nextVer = `${majorPart}.${minorPart}.${patchPart}`;
+const asmVersion = `${majorPart}.${minorPart}.${patchPart}.0`;
 const verTag = `v${nextVer}`;
 
 console.log(`[1/6] Building release ${verTag} (previous: v${verCfg.version}, assembly: ${asmVersion})...`);
@@ -249,4 +265,4 @@ console.log(`[5/6] Created ZIP archives:\n  - ${webZipPath} (${(fs.statSync(webZ
 verCfg.version = nextVer;
 verCfg.lastBuiltAt = new Date().toISOString();
 fs.writeFileSync(versionJsonPath, JSON.stringify(verCfg, null, 2) + '\n', 'utf8');
-console.log(`[6/6] Updated version.json -> version "${nextVer}". Next build will automatically bump to v${((Math.round(parseFloat(nextVer) * 10) + 1) / 10).toFixed(1)}.`);
+console.log(`[6/6] Updated version.json -> version "${nextVer}". Next build will automatically bump to v${majorPart}.${minorPart}.${patchPart + 1}.`);
